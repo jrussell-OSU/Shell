@@ -25,6 +25,7 @@ void print_command(struct CommandLine *curr_command);
 void built_in_cmds(char * command, char * arguments);
 char * expand$$(char * command);
 void exit_cmd(char * command);
+void cd_cmd(char * command, char * arguments);
 
 
 int main()
@@ -184,8 +185,7 @@ void built_in_cmds(char * command, char * arguments)
 
     exit_cmd(command); //checks for exit command, exits function if found
 
-    
-
+    cd_cmd(command, arguments); //checks for cd command, if found changes directory to home w/no arguments, or to a specified directory argument
 }
 
 char * expand$$(char * command)
@@ -224,5 +224,48 @@ void exit_cmd(char * command)
         exit(0);
     }
 }
+
+void cd_cmd(char * command, char * arguments)
+{
+    int i, count;
+    i = count = 0;
+    char cwd[500];
+
+    /*
+    //Count number of arguments
+    if (!arguments){  //if no arguments (null array)
+        printf("Filepath not specified, changing to HOME directory.\n"); //for debugging
+        chdir(getenv("HOME"));
+        getcwd(cwd, sizeof(cwd));
+        printf("Current filepath: %s\n", cwd);
+        return 0;       
+    }
+    */
+
+    //Get number of arguments (first make sure arguments !null to prevent segfault)
+    for (i=0;arguments && i<strlen(arguments); ++i){
+        if (arguments[i] == '-')
+            ++count;
+    }
+
+    switch(count){
+        case 0 :  //no arguments, cwd to HOME directory
+            printf("Filepath not specified, changing to HOME directory.\n"); //for debugging
+            chdir(getenv("HOME"));  //get file path of $HOME directory from env
+            getcwd(cwd, sizeof(cwd));
+            printf("Current filepath: %s\n", cwd);
+            break;
+        case 1 :  //one argument, cwd to specified file path
+            printf("File path specified, changing directory...\n");
+            break;
+        default : //
+            printf("Too many arguments! Only one filepath allowed for cd command.\n");
+            break;
+    }
+}
+
+
+
+
 
 
