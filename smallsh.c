@@ -231,17 +231,6 @@ void cd_cmd(char * command, char * arguments)
     i = count = 0;
     char cwd[500];
 
-    /*
-    //Count number of arguments
-    if (!arguments){  //if no arguments (null array)
-        printf("Filepath not specified, changing to HOME directory.\n"); //for debugging
-        chdir(getenv("HOME"));
-        getcwd(cwd, sizeof(cwd));
-        printf("Current filepath: %s\n", cwd);
-        return 0;       
-    }
-    */
-
     //Get number of arguments (first make sure arguments !null to prevent segfault)
     for (i=0;arguments && i<strlen(arguments); ++i){
         if (arguments[i] == '-')
@@ -253,12 +242,16 @@ void cd_cmd(char * command, char * arguments)
             printf("Filepath not specified, changing to HOME directory.\n"); //for debugging
             chdir(getenv("HOME"));  //get file path of $HOME directory from env
             getcwd(cwd, sizeof(cwd));
-            printf("Current filepath: %s\n", cwd);
+            printf("Current filepath: %s\n", cwd);  //for DEBUGGING
             break;
         case 1 :  //one argument, cwd to specified file path
             printf("File path specified, changing directory...\n");
+            chdir(strtok(arguments, "-"));  //cwd to new filepath
+            printf("File path given: %s\n", strtok(arguments, "-"));  //for DEBUGGING
+            getcwd(cwd, sizeof(cwd));
+            printf("Current filepath: %s\n", cwd);  //for DEBUGGING
             break;
-        default : //
+        default : //too many arguments, do nothing
             printf("Too many arguments! Only one filepath allowed for cd command.\n");
             break;
     }
