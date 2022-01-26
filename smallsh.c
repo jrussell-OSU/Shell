@@ -23,6 +23,8 @@ char * get_command(char command_line[]);
 struct CommandLine *parse_command(char command_line[]);
 void print_command(struct CommandLine *curr_command);
 void exec_command(char * command);
+char * expand$$(char * command);
+
 
 int main()
 {
@@ -173,14 +175,49 @@ void print_command(struct CommandLine *curr_command)
 
 void exec_command(char * command)
 {
-    //printf("Executing cmd: '%s'\n", command);  //DEBUGGING
-    int count = 0;
-    int i;
+    char * saved_command = NULL; //keep copy of 
+    strcpy(saved_command, command);
+    
+    expand$$(command);  //expand $$ macro in command to getpid()
+    //printf("Expanded command: %s\n", command); //for DEBUGGING
 
-    for (i=0; i == ((strlen(command)) - 1); ++i){
-        printf("char: %c", command[i]);
-        if (command[i++] == '$')
+    if (strlen(command) >= 4 && !strncmp("exit", command, 4)){
+        printf("Exiting shell..."); //for DEBUGGING
+        exit(0);
+    }
+
+}
+
+char * expand$$(char * command)
+{
+    int count, i, total$$, itoa_len, rem$;
+    char str_itoa[100];
+    count = i = total$$ = itoa_len = rem$ = 0;
+    //char * temp;
+
+    for (i = 0; i < (strlen(command)); ++i){
+        if (command[i] == '$') 
             ++count;
     }
-    printf("There are %d $'s in the command.\n", count);
+
+    if (count <= 1) // no $$ macro present, exit function early
+        return command;
+        
+    //printf("There are %d $'s in the command.\n", count); for DEBUGGING
+    strtok(command, "$");  //remove $'s from command
+    
+    if ((rem$ = count % 2) == 1)
+        strcat(command, "$");  //get if any $'s leftover
+
+    total$$ = count / 2;
+    for (i=0; i<total$$; ++i){
+        itoa_len = sprintf(str_itoa, "%d", getpid());    
+        strcat(command, str_itoa);
+    }
+
+    return command;
 }
+
+
+
+
