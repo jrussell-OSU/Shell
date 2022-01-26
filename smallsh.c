@@ -22,8 +22,9 @@ struct CommandLine {
 char * get_command(char command_line[]);
 struct CommandLine *parse_command(char command_line[]);
 void print_command(struct CommandLine *curr_command);
-void exec_command(char * command);
+void built_in_cmds(char * command, char * arguments);
 char * expand$$(char * command);
+void exit_cmd(char * command);
 
 
 int main()
@@ -37,7 +38,10 @@ int main()
 
         struct CommandLine *curr_command = parse_command(command_line); //Parse command input, returns structure with parsed commands
 
-        curr_command->cmd ? exec_command(curr_command->cmd) : NULL; //if command present, execute it
+        if (!curr_command->cmd)  //if command is NULL, get new one
+            continue; 
+        
+        built_in_cmds(curr_command->cmd, curr_command->arguments);  //check and execute any built-in commands (exit, cd, and status)
 
     }
 
@@ -173,18 +177,14 @@ void print_command(struct CommandLine *curr_command)
         printf("Foreground process\n");    
 }
 
-void exec_command(char * command)
-{
-    char * saved_command = NULL; //keep copy of 
-    strcpy(saved_command, command);
-    
+void built_in_cmds(char * command, char * arguments)
+{    
     expand$$(command);  //expand $$ macro in command to getpid()
     //printf("Expanded command: %s\n", command); //for DEBUGGING
 
-    if (strlen(command) >= 4 && !strncmp("exit", command, 4)){
-        printf("Exiting shell..."); //for DEBUGGING
-        exit(0);
-    }
+    exit_cmd(command); //checks for exit command, exits function if found
+
+    
 
 }
 
@@ -202,8 +202,7 @@ char * expand$$(char * command)
 
     if (count <= 1) // no $$ macro present, exit function early
         return command;
-        
-    //printf("There are %d $'s in the command.\n", count); for DEBUGGING
+
     strtok(command, "$");  //remove $'s from command
     
     if ((rem$ = count % 2) == 1)
@@ -218,6 +217,12 @@ char * expand$$(char * command)
     return command;
 }
 
-
+void exit_cmd(char * command)
+{
+    if (strlen(command) >= 4 && !strncmp("exit", command, 4)){
+        printf("Exiting shell..."); //for DEBUGGING
+        exit(0);
+    }
+}
 
 
