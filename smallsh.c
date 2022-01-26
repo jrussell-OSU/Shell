@@ -22,10 +22,12 @@ struct CommandLine {
 char * get_command(char command_line[]);
 struct CommandLine *parse_command(char command_line[]);
 void print_command(struct CommandLine *curr_command);
+void exec_command(char * command);
 
 int main()
 {
     char command_line[3000];
+
 
     while(1){
         
@@ -33,7 +35,8 @@ int main()
 
         struct CommandLine *curr_command = parse_command(command_line); //Parse command input, returns structure with parsed commands
 
-        
+        curr_command->cmd ? exec_command(curr_command->cmd) : NULL; //if command present, execute it
+
     }
 
     return 0;
@@ -47,7 +50,7 @@ char * get_command(char command_line[])
     //ssize_t num_char;
     curr_line = malloc(buff_size * sizeof(char));
 
-    putchar(':');
+    printf(": ");
     getline(&curr_line, &buff_size, stdin);
 
     strcpy(command_line, curr_line);
@@ -80,17 +83,31 @@ struct CommandLine *parse_command(char command_line[])
     }
 
     //Get "command" portion of user command (first delim'd token)
+    if (strstr(token, "\n"))
+        newline_flag = 1;
+
     curr_command->cmd = calloc(strlen(token) + 1, sizeof(char));
+    //printf("token last character: '%c'\n", token[strlen(token)]);
+    strcpy(curr_command->cmd, strtok(token, "\n"));
 
-    strcpy(curr_command->cmd, token);
-
+    //end function since line end found
+    if (newline_flag){
+        print_command(curr_command);
+        return curr_command;
+    }
 
     //Get "arguments" (if any)
     curr_command->arguments = calloc(1000, sizeof(char));  //allocate mem for arguments
     while (!strncmp("-", (token = strtok_r(NULL, " ", &saveptr)), 1)){
-        strcat(curr_command->arguments, token);
+        if (strstr(token, "\n"))
+            newline_flag = 1;
+        strcat(curr_command->arguments, strtok(token, "\n"));
+        if (newline_flag){
+            print_command(curr_command);
+            return curr_command;
+        }
     }
-
+    
     //Get input and output files
     while (saveptr && (!strcmp("<", token) || !strcmp(">", token))){
         
@@ -138,6 +155,7 @@ struct CommandLine *parse_command(char command_line[])
 
 //Prints command_struct where members are not NULL. Used for DEBUGGING
 void print_command(struct CommandLine *curr_command)
+
 {
     if (curr_command->cmd != NULL)
         printf("Command: '%s'\n", curr_command->cmd);
@@ -151,4 +169,18 @@ void print_command(struct CommandLine *curr_command)
         printf("Background process\n");
     else
         printf("Foreground process\n");    
+}
+
+void exec_command(char * command)
+{
+    //printf("Executing cmd: '%s'\n", command);  //DEBUGGING
+    int count = 0;
+    int i;
+
+    for (i=0; i == ((strlen(command)) - 1); ++i){
+        printf("char: %c", command[i]);
+        if (command[i++] == '$')
+            ++count;
+    }
+    printf("There are %d $'s in the command.\n", count);
 }
