@@ -26,15 +26,21 @@ void built_in_cmds(char * command, char * arguments);
 char * expand$$(char * command);
 void exit_cmd(char * command);
 void cd_cmd(char * command, char * arguments);
+void system_cmds(char * command);
 
+extern int built_in_cmd_flag = 0;  //if a built_in command was executed
+extern int system_cmd_flag = 0;  //if a system call was executed
 
 int main()
 {
     char command_line[3000];
-
+    int built_in_cmd_flag;
+    int system_cmd_flag;
 
     while(1){
-        
+        built_in_cmd_flag = 0;
+        system_cmd_flag = 0;
+
         get_command(command_line); //Get command line input from user        
 
         struct CommandLine *curr_command = parse_command(command_line); //Parse command input, returns structure with parsed commands
@@ -43,6 +49,10 @@ int main()
             continue; 
         
         built_in_cmds(curr_command->cmd, curr_command->arguments);  //check and execute any built-in commands (exit, cd, and status)
+
+        if (!built_in_cmd_flag)
+            system_cmds(curr_command->cmd);
+
 
     }
 
@@ -99,7 +109,7 @@ struct CommandLine *parse_command(char command_line[])
 
     //end function since line end found
     if (newline_flag){
-        print_command(curr_command);
+        //print_command(curr_command);
         return curr_command;
     }
 
@@ -110,7 +120,7 @@ struct CommandLine *parse_command(char command_line[])
             newline_flag = 1;
         strcat(curr_command->arguments, strtok(token, "\n"));
         if (newline_flag){
-            print_command(curr_command);
+            //print_command(curr_command);
             return curr_command;
         }
     }
@@ -138,14 +148,14 @@ struct CommandLine *parse_command(char command_line[])
         
         //If more than one of the same > or < found, error
         else {
-            printf("Error, too many files.\n");  //DEBUGGING
+            //printf("Error, too many files.\n");  //DEBUGGING
             //print_command(curr_command);  //DEBUGGING
             return curr_command;  //exit function early
         }
 
         //If there was a newline found, terminate function early to avoid segfaults, since we are at end of command anyway
         if (newline_flag){
-            print_command(curr_command);  //DEBUGGING
+            //print_command(curr_command);  //DEBUGGING
             return curr_command;
         }
         token = strtok_r(NULL, " ", &saveptr);
@@ -183,9 +193,15 @@ void built_in_cmds(char * command, char * arguments)
     expand$$(command);  //expand $$ macro in command to getpid()
     //printf("Expanded command: %s\n", command); //for DEBUGGING
 
-    exit_cmd(command); //checks for exit command, exits function if found
+    if (!strncmp("exit", command, 4)){
+        built_in_cmd_flag = 1;
+        exit_cmd(command); //checks for exit command, exits function if found
+    }
 
-    cd_cmd(command, arguments); //checks for cd command, if found changes directory to home w/no arguments, or to a specified directory argument
+    if (!strncmp("cd", command, 2)){
+        built_in_cmd_flag = 1;
+        cd_cmd(command, arguments); //checks for cd command, if found changes directory to home w/no arguments, or to a specified directory argument
+    }
 }
 
 char * expand$$(char * command)
@@ -256,6 +272,39 @@ void cd_cmd(char * command, char * arguments)
             break;
     }
 }
+
+void system_cmds(char * command)
+{
+    
+
+    char *newargv[] = { "/bin/ls", "-al", NULL };
+
+    int wait_id = 0;
+
+
+    //Execute the system call from a child process
+    pid_t spawnpid = -5;  //part of code below taken from class explorations
+    spawnpid = fork();
+    switch (spawnpid){
+        case -1:  //error
+            perror("fork() failed!");
+            exit(1);
+            break;
+        case 0:  //child process
+            printf("Child process now...\n");  //for DEBUGGING
+            if (!strncmp("ls", command, 4))
+                execv(newargv[0], newargv);
+            SIGTERM;
+            break;
+        default:  //parent process
+            wait(&wait_id);
+            printf("Child process is terminated. Wait id: %d\n", wait_id); //for DEBUGGING
+            break;
+    }
+
+
+}
+
 
 
 
