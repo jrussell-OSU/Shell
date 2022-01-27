@@ -10,6 +10,9 @@
 #include <unistd.h>
 #include <string.h>
 
+#define NUMBER_OF_STRINGS 600
+#define STRING_SIZE 100
+#define MAX_ARGS_SIZE 2048
 
 struct CommandLine {
     char * cmd;    
@@ -20,7 +23,8 @@ struct CommandLine {
 };
 
 char * get_command(char command_line[]);
-struct CommandLine *parse_command(char command_line[]);
+char ** tokenize_command(char command_line[]);
+struct CommandLine *parse_command(char ** commands);
 void print_command(struct CommandLine *curr_command);
 void built_in_cmds(char * command, char * arguments);
 char * expand$$(char * command);
@@ -28,32 +32,38 @@ void exit_cmd(char * command);
 void cd_cmd(char * command, char * arguments);
 void system_cmds(char * command);
 
-extern int built_in_cmd_flag = 0;  //if a built_in command was executed
-extern int system_cmd_flag = 0;  //if a system call was executed
 
 int main()
 {
     char command_line[3000];
-    int built_in_cmd_flag;
-    int system_cmd_flag;
+    //int built_in_cmd_flag;
+    //int system_cmd_flag;
+    //char token_arr[NUMBER_OF_STRINGS][STRING_SIZE]; 
+    int i = 0;
 
     while(1){
-        built_in_cmd_flag = 0;
-        system_cmd_flag = 0;
 
         get_command(command_line); //Get command line input from user        
 
-        struct CommandLine *curr_command = parse_command(command_line); //Parse command input, returns structure with parsed commands
+        char** commands = tokenize_command(command_line); //Divide up command input into tokens without whitespace
+        //for (i=0; commands[i][0] != EOF; ++i)
+            //printf("'%s'", commands[i]);
 
-        if (!curr_command->cmd)  //if command is NULL, get new one
-            continue; 
+        if (commands[0][0] == '\n'){
+            printf("Blank line ignored.\n");
+            continue;
+        }
         
-        built_in_cmds(curr_command->cmd, curr_command->arguments);  //check and execute any built-in commands (exit, cd, and status)
-
-        if (!built_in_cmd_flag)
-            system_cmds(curr_command->cmd);
+        struct CommandLine *curr_command = parse_command(commands); //Parse command input, returns structure with parsed commands
 
 
+        //if (!curr_command->cmd)  //if command is NULL, get new one
+            //continue; 
+        
+        //built_in_cmds(curr_command->cmd, curr_command->arguments);  //check and execute any built-in commands (exit, cd, and status)
+
+        //if (!built_in_cmd_flag)
+            //system_cmds(curr_command->cmd);
     }
 
     return 0;
@@ -76,6 +86,104 @@ char * get_command(char command_line[])
     return command_line;
 }
 
+//Go through user input command, tokenize to remove whitespace and save to array for later parsing
+char ** tokenize_command(char command_line[])
+{
+    int i = 0;
+    char *token; //holds delim'd tokens from strtok_r
+    char *saveptr; //holds place for strtok_r
+    
+    //Allocate space for array of strings (array of pointers to strings) 
+    char **token_arr = calloc(NUMBER_OF_STRINGS, sizeof(*token_arr));
+    for (i = 0; i < NUMBER_OF_STRINGS; ++i)
+        token_arr[i] = malloc(STRING_SIZE);
+
+    //Break up input command line into tokens, then store in token_arr (array of strings)
+    token = strtok_r(command_line, " ", &saveptr); //holds current delimn'd token from the command_line user input
+    
+    //Check for a blank input
+    if (!(strcmp(token, "\n"))){
+        //printf("newline first character\n");
+        token_arr[0][0] = '\n';
+        return token_arr;
+    }
+
+    i = 0;
+    while (token && strcmp(token, "\n")){
+        strcpy(token_arr[i++], strtok(token, "\n"));
+        token = strtok_r(NULL, " ", &saveptr);
+    }
+    token_arr[i][0] = EOF;  //Puts stopper at end of array of strings
+
+    //For debugging
+    for (i=0; token_arr[i][0] != EOF; ++i)
+        printf("'%s'\n", token_arr[i]);
+
+    return token_arr;  
+}
+
+//Go through command line array, parse commands, and put in CommandLine struct members
+struct CommandLine *parse_command(char ** commands)
+{
+    struct CommandLine *curr_command = malloc(sizeof(struct CommandLine)); //create (allocate memory for) CommandLine structure
+    int i = 0;
+
+    //Set all struct members to NULL so we can know what commands were received later
+    curr_command->cmd = NULL;
+    curr_command->arguments = NULL;
+    curr_command->input_file = NULL;
+    curr_command->output_file = NULL;
+    curr_command->background_flag = 0;  //1 == background process, 0 == foreground
+
+    //Check for # comments and blank lines
+    if (!(strncmp("#", commands[0], 1))){
+        printf("Comment ignored.\n"); //DEBUGGING
+        return curr_command;  //truncate function
+    }
+    
+    //Allocate space for cmd member and copy user command into it
+    curr_command->cmd = calloc(strlen(commands[i]) + 1, sizeof(char));
+    strcpy(curr_command->cmd, commands[0]);
+    printf("Cmd: '%s'\n", curr_command->cmd);  //for DEBUGGING
+
+    
+    //Check for arguments, input and output, and background/foreground flag
+    curr_command->arguments = calloc(MAX_ARGS_SIZE, sizeof(char)); //need to use constant since arg size can vary wildly
+    for (i = 1; commands[i] && commands[i][0] != EOF; ++i){
+        printf("Checking: '%s'", commands[i]);
+        switch(commands[i][0]){
+            case '-' :  //if it's an argument
+                strcat(curr_command->arguments, commands[i]);
+                printf("Arg: '%s'\n", curr_command->arguments);  //for DEBUGGING
+                break;
+            case '>':  //if it's an output file
+                curr_command->output_file = calloc(strlen(commands[i]) + 1, sizeof(char));
+                strcat(curr_command->output_file, commands[++i]);
+                printf("Output file: '%s'\n", curr_command->output_file);  //for DEBUGGING        
+                break;
+            case '<': //if it's an input file
+                curr_command->output_file = calloc(strlen(commands[i]) + 1, sizeof(char));
+                strcat(curr_command->input_file, commands[++i]);
+                printf("Input file: '%s'\n", curr_command->input_file);  //for DEBUGGING 
+                break;
+            case '&': //if it's a background flag
+                if (commands[i + 1][0] == EOF){  //if the '&' is the last command in the line, set flag. otherwise ignore
+                    curr_command->background_flag = 1;
+                    printf("Background flag: %d\n", curr_command->background_flag);
+                }
+                break;
+            default :
+                printf("Unrecognized input.\n");
+                break;
+        }      
+    }
+    //printf("Arg: '%s'\n", curr_command->arguments);  //for DEBUGGING
+
+
+}
+
+//old command line parse function, will delete
+/*
 //Parse the command line input and put into a structure
 struct CommandLine *parse_command(char command_line[])
 {
@@ -168,11 +276,10 @@ struct CommandLine *parse_command(char command_line[])
     print_command(curr_command);  //DEBUGGING
     fflush(stdout);
     return curr_command; //return CommandLine structure
-}
+} */
 
 //Prints command_struct where members are not NULL. Used for DEBUGGING
 void print_command(struct CommandLine *curr_command)
-
 {
     if (curr_command->cmd != NULL)
         printf("Command: '%s'\n", curr_command->cmd);
@@ -194,12 +301,10 @@ void built_in_cmds(char * command, char * arguments)
     //printf("Expanded command: %s\n", command); //for DEBUGGING
 
     if (!strncmp("exit", command, 4)){
-        built_in_cmd_flag = 1;
         exit_cmd(command); //checks for exit command, exits function if found
     }
 
     if (!strncmp("cd", command, 2)){
-        built_in_cmd_flag = 1;
         cd_cmd(command, arguments); //checks for cd command, if found changes directory to home w/no arguments, or to a specified directory argument
     }
 }
