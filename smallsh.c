@@ -176,102 +176,6 @@ struct CommandLine *parse_command(char ** commands)
     return curr_command;
 }
 
-//old command line parse function, will delete
-/*
-//Parse the command line input and put into a structure
-struct CommandLine *parse_command(char command_line[])
-{
-    char *saveptr; //holds place for strtok_r
-    char *token; //holds delim'd tokens from strtok_r
-    int newline_flag = 0;  //if a token has a \n char
-    
-    struct CommandLine *curr_command = malloc(sizeof(struct CommandLine)); //create (allocate memory for) CommandLine structure
-    
-    curr_command->cmd = NULL;
-    curr_command->arguments = NULL;
-    curr_command->input_file = NULL;
-    curr_command->output_file = NULL;
-    curr_command->background_flag = 0;
-    
-    token = strtok_r(command_line, " ", &saveptr); //holds current delimn'd token from the command_line user input
-
-    //Check for # comments and blank lines
-    if (!(strcmp("\n", token)) || !(strncmp("#", token, 1))){
-        //printf("Comment or blank line ignored.\n"); //DEBUGGING
-        return curr_command;  //truncate function
-    }
-
-    //Get "command" portion of user command (first delim'd token)
-    if (strstr(token, "\n"))
-        newline_flag = 1;
-
-    curr_command->cmd = calloc(strlen(token) + 1, sizeof(char));
-    //printf("token last character: '%c'\n", token[strlen(token)]);
-    strcpy(curr_command->cmd, strtok(token, "\n"));
-
-    //end function since line end found
-    if (newline_flag){
-        //print_command(curr_command);
-        return curr_command;
-    }
-
-    //Get "arguments" (if any)
-    curr_command->arguments = calloc(1000, sizeof(char));  //allocate mem for arguments
-    while (!strncmp("-", (token = strtok_r(NULL, " ", &saveptr)), 1)){
-        if (strstr(token, "\n"))
-            newline_flag = 1;
-        strcat(curr_command->arguments, strtok(token, "\n"));
-        if (newline_flag){
-            //print_command(curr_command);
-            return curr_command;
-        }
-    }
-    
-    //Get input and output files
-    while (saveptr && (!strcmp("<", token) || !strcmp(">", token))){
-        
-        //Get "input_file" (if any)
-        if (!strcmp("<", token) && curr_command->input_file == NULL){ //if it begins with "<" it's an input file
-            token = strtok_r(NULL, " ", &saveptr);
-            if (strstr(token, "\n")) //check for newline characters, that means we have reached end of input
-                newline_flag = 1;
-            curr_command->input_file = calloc(strlen(token) + 1, sizeof(char));
-            strcpy(curr_command->input_file, strtok(token, "\n"));
-        }
-
-        //Get "output_file" (if any)
-        else if (!strcmp(">", token) && curr_command->output_file == NULL){ //if it begins with ">" it's an output file
-            token = strtok_r(NULL, " ", &saveptr);
-            if (strstr(token, "\n"))
-                newline_flag = 1;
-            curr_command->output_file = calloc(strlen(token) + 1, sizeof(char));
-            strcpy(curr_command->output_file, strtok(token, "\n"));
-        } 
-        
-        //If more than one of the same > or < found, error
-        else {
-            //printf("Error, too many files.\n");  //DEBUGGING
-            //print_command(curr_command);  //DEBUGGING
-            return curr_command;  //exit function early
-        }
-
-        //If there was a newline found, terminate function early to avoid segfaults, since we are at end of command anyway
-        if (newline_flag){
-            //print_command(curr_command);  //DEBUGGING
-            return curr_command;
-        }
-        token = strtok_r(NULL, " ", &saveptr);
-    }
-
-    //Get if background or foreground process (defaults to foreground)
-    if (!strcmp("&\n", token))    
-        curr_command->background_flag = 1;  //background
-    
-    print_command(curr_command);  //DEBUGGING
-    fflush(stdout);
-    return curr_command; //return CommandLine structure
-} */
-
 //Prints command_struct where members are not NULL. Used for DEBUGGING
 void print_command(struct CommandLine *curr_command)
 {
@@ -346,29 +250,18 @@ void cd_cmd(char * command, char * arguments)
     i = count = 0;
     char cwd[500];
 
-    //Get number of arguments (first make sure arguments !null to prevent segfault)
-    for (i=0;arguments && i<strlen(arguments); ++i){
-        if (arguments[i] == '-')
-            ++count;
-    }
-
-    switch(count){
-        case 0 :  //no arguments, cwd to HOME directory
-            printf("Filepath not specified, changing to HOME directory.\n"); //for debugging
-            chdir(getenv("HOME"));  //get file path of $HOME directory from env
-            getcwd(cwd, sizeof(cwd));
-            printf("Current filepath: %s\n", cwd);  //for DEBUGGING
-            break;
-        case 1 :  //one argument, cwd to specified file path
-            printf("File path specified, changing directory...\n");
-            chdir(strtok(arguments, "-"));  //cwd to new filepath
-            printf("File path given: %s\n", strtok(arguments, "-"));  //for DEBUGGING
-            getcwd(cwd, sizeof(cwd));
-            printf("Current filepath: %s\n", cwd);  //for DEBUGGING
-            break;
-        default : //too many arguments, do nothing
-            printf("Too many arguments! Only one filepath allowed for cd command.\n");
-            break;
+    if (arguments){
+        printf("File path specified, changing directory...\n");
+        char *filepath = arguments + 1;  //remove '-' prefix
+        chdir(filepath);  //cwd to new filepath
+        printf("File path given: %s\n", filepath);  //for DEBUGGING
+        getcwd(cwd, sizeof(cwd));
+        printf("Current filepath: %s\n", cwd);  //for DEBUGGING
+    } else {
+        printf("No file path specified, changing directory to HOME.\n");
+        chdir(getenv("HOME"));  //get file path of $HOME directory from env
+        getcwd(cwd, sizeof(cwd));
+        printf("Current filepath: %s\n", cwd);  //for DEBUGGING
     }
 }
 
