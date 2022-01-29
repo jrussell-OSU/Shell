@@ -29,12 +29,12 @@ char * get_command(char command_line[]);
 char ** tokenize_command(char command_line[]);
 struct CommandLine *parse_command(char ** commands);
 void print_command(struct CommandLine *curr_command);
-void built_in_cmds(char * command, char * arguments);
-char * expand$$(char * command);
-void exit_cmd(char * command);
-void cd_cmd(char * command, char * arguments);
-void status_cmd(char * command);
-void system_cmds(char * command, char * arguments);
+void built_in_cmds(struct CommandLine *curr_command);
+char * expand$$(struct CommandLine *curr_command);
+void exit_cmd(struct CommandLine *curr_command);
+void cd_cmd(struct CommandLine *curr_command);
+void status_cmd(struct CommandLine *curr_command);
+void system_cmds(struct CommandLine *curr_command);
 //void child_sys_cmd(char * command, char * arguments);
 
 
@@ -60,9 +60,9 @@ int main()
 
         //Run built in or sys commands based on command input
         if (!strncmp("cd", curr_command->cmd, 2) || !strncmp("exit", curr_command->cmd, 4) || !strncmp("status", curr_command->cmd, 5))
-            built_in_cmds(curr_command->cmd, curr_command->arguments);  //check and execute any built-in commands (exit, cd, and status)
+            built_in_cmds(curr_command);  //check and execute any built-in commands (exit, cd, and status)
         else
-            system_cmds(curr_command->cmd, curr_command->arguments);  //check and execute system call
+            system_cmds(curr_command);  //check and execute system call
 
     }
 
@@ -181,7 +181,7 @@ struct CommandLine *parse_command(char ** commands)
                 break;
         }      
     }
-    print_command(curr_command);  //for DEBUGGING
+    //print_command(curr_command);  //for DEBUGGING
     return curr_command;
 }
 
@@ -202,72 +202,72 @@ void print_command(struct CommandLine *curr_command)
         printf("Foreground process\n");    
 }
 
-void built_in_cmds(char * command, char * arguments)
+void built_in_cmds(struct CommandLine *curr_command)
 {    
-    expand$$(command);  //expand $$ macro in command to getpid()
+    expand$$(curr_command);  //expand $$ macro in command to getpid()
     //printf("Expanded command: %s\n", command); //for DEBUGGING
 
-    if (!strncmp("exit", command, 4)){
-        exit_cmd(command); //checks for exit command, exits function if found
+    if (!strncmp("exit", curr_command->cmd, 4)){
+        exit_cmd(curr_command); //checks for exit command, exits function if found
     }
 
-    if (!strncmp("cd", command, 2)){
-        cd_cmd(command, arguments); //checks for cd command, if found changes directory to home w/no arguments, or to a specified directory argument
+    if (!strncmp("cd", curr_command->cmd, 2)){
+        cd_cmd(curr_command); //checks for cd command, if found changes directory to home w/no arguments, or to a specified directory argument
     }
 
-    if (!strncmp("status", command, 5)){
-        status_cmd(command); //checks for exit command, exits function if found
+    if (!strncmp("status", curr_command->cmd, 5)){
+        status_cmd(curr_command); //checks for exit command, exits function if found
     }
 
 }
 
-char * expand$$(char * command)
+char * expand$$(struct CommandLine *curr_command)
 {
     int count, i, total$$, itoa_len, rem$;
     char str_itoa[100];
     count = i = total$$ = itoa_len = rem$ = 0;
     //char * temp;
 
-    for (i = 0; i < (strlen(command)); ++i){
-        if (command[i] == '$') 
+    for (i = 0; i < (strlen(curr_command->cmd)); ++i){
+        if (curr_command->cmd[i] == '$') 
             ++count;
     }
 
     if (count <= 1) // no $$ macro present, exit function early
-        return command;
+        return curr_command->cmd;
 
-    strtok(command, "$");  //remove $'s from command
+    strtok(curr_command->cmd, "$");  //remove $'s from command
     
     if ((rem$ = count % 2) == 1)
-        strcat(command, "$");  //get if any $'s leftover
+        strcat(curr_command->cmd, "$");  //get if any $'s leftover
 
     total$$ = count / 2;
     for (i=0; i<total$$; ++i){
         itoa_len = sprintf(str_itoa, "%d", getpid());    
-        strcat(command, str_itoa);
+        strcat(curr_command->cmd, str_itoa);
     }
 
-    return command;
+    return curr_command->cmd;
 }
 
-void exit_cmd(char * command)
+void exit_cmd(struct CommandLine *curr_command)
 {
-    if (strlen(command) >= 4 && !strncmp("exit", command, 4)){
+    if (strlen(curr_command->cmd) >= 4 && !strncmp("exit", curr_command->cmd, 4)){
         printf("Exiting shell..."); //for DEBUGGING
         exit(0);
     }
 }
 
-void cd_cmd(char * command, char * arguments)
+void cd_cmd(struct CommandLine *curr_command)
 {
     //int i, count;
     //i = count = 0;
     char cwd[PATH_MAX];
     //char *cwd = calloc(strlen(command) + strlen(arguments) + 1, sizeof(char));
 
-    if (arguments){
+    if (curr_command->arguments){
         printf("File path specified, changing directory...\n");
-        char *filepath = arguments + 1;  //remove '-' prefix
+        char *filepath = curr_command->arguments + 1;  //remove '-' prefix
         chdir(filepath);  //cwd to new filepath
         printf("File path given: %s\n", filepath);  //for DEBUGGING
         getcwd(cwd, sizeof(cwd));
@@ -280,14 +280,14 @@ void cd_cmd(char * command, char * arguments)
     }
 }
 
-void status_cmd(char * command)
+void status_cmd(struct CommandLine *curr_command)
 {
-    if (strlen(command) >= 5 && !strncmp("status", command, 5)){
+    if (strlen(curr_command->cmd) >= 5 && !strncmp("status", curr_command->cmd, 5)){
         printf("exit status %s\n", getenv("STATUS"));
     }
 }
 
-void system_cmds(char * command, char * arguments)
+void system_cmds(struct CommandLine *curr_command)
 {
     //printf("args: '%s'\n", arguments);  //DEBUG
     int i = 0;
@@ -295,7 +295,7 @@ void system_cmds(char * command, char * arguments)
     char *saveptr;
 
     //Create the system call command exec() first argument
-    char *sys_call = strtok(command, "\n");
+    char *sys_call = strtok(curr_command->cmd, "\n");
 
     //Allocate space for an args array of strings
     char **args_array = calloc(NUMBER_OF_STRINGS, sizeof(*args_array));
@@ -303,8 +303,8 @@ void system_cmds(char * command, char * arguments)
         args_array[i] = malloc(ARG_SIZE);
     args_array[0] = sys_call;   //first must be file path for execv()
     i = 1;
-    if (arguments){  //make sure there actually are arguments before trying to add to array
-        token = strtok_r(arguments, " ", &saveptr);
+    if (curr_command->arguments){  //make sure there actually are arguments before trying to add to array
+        token = strtok_r(curr_command->arguments, " ", &saveptr);
         while (token && strcmp(token, "\n")){
             //printf("curr token: '%s'\n", token);
             strcpy(args_array[i++], strtok(token, "\n"));
