@@ -10,10 +10,12 @@
 #include <unistd.h>
 #include <string.h>
 
-#define NUMBER_OF_STRINGS 600
-#define STRING_SIZE 100
-#define MAX_ARGS_SIZE 2049
-#define MAX_COMMAND_SIZE 2049
+#define NUMBER_OF_STRINGS 600  //# of strings in 2d array for command input
+#define STRING_SIZE 100  
+#define ARG_SIZE 10
+#define MAX_ARGS_SIZE 2049  //max length of all arguments
+#define MAX_COMMAND_SIZE 2049  //max length of command
+#define PATH_MAX 4096  //file_path size max
 
 struct CommandLine {
     char * cmd;    
@@ -31,7 +33,9 @@ void built_in_cmds(char * command, char * arguments);
 char * expand$$(char * command);
 void exit_cmd(char * command);
 void cd_cmd(char * command, char * arguments);
-void system_cmds(char * command);
+void status_cmd(char * command);
+void system_cmds(char * command, char * arguments);
+//void child_sys_cmd(char * command, char * arguments);
 
 
 int main()
@@ -45,7 +49,7 @@ int main()
         char** commands = tokenize_command(command_line); //Divide up command input into tokens without whitespace
 
         if (commands[0][0] == '\n'){
-            printf("Blank line ignored.\n");
+            //printf("Blank line ignored.\n"); for DEBUGGING
             continue;
         }
         
@@ -53,11 +57,13 @@ int main()
 
         if (!curr_command->cmd)  //if command is NULL, get new one (fail-safe catch)
             continue; 
-        
-        built_in_cmds(curr_command->cmd, curr_command->arguments);  //check and execute any built-in commands (exit, cd, and status)
 
-        //if (!built_in_cmd_flag)
-            //system_cmds(curr_command->cmd);
+        //Run built in or sys commands based on command input
+        if (!strncmp("cd", curr_command->cmd, 2) || !strncmp("exit", curr_command->cmd, 4) || !strncmp("status", curr_command->cmd, 5))
+            built_in_cmds(curr_command->cmd, curr_command->arguments);  //check and execute any built-in commands (exit, cd, and status)
+        else
+            system_cmds(curr_command->cmd, curr_command->arguments);  //check and execute system call
+
     }
 
     return 0;
@@ -131,7 +137,7 @@ struct CommandLine *parse_command(char ** commands)
 
     //Check for # comments and blank lines
     if (!(strncmp("#", commands[0], 1))){
-        printf("Comment ignored.\n"); //DEBUGGING
+        //printf("Comment ignored.\n"); //DEBUGGING
         return curr_command;  //truncate function
     }
     
@@ -147,8 +153,11 @@ struct CommandLine *parse_command(char ** commands)
         switch(commands[i][0]){
             case '-' :  //if it's an argument
                 if (curr_command->arguments == NULL)
+                    //curr_command->arguments = malloc(sizeof(curr_command->arguments))
                     curr_command->arguments = calloc(MAX_ARGS_SIZE, sizeof(char)); //need to use constant since we are looping to get args and cant keep reallocating
                 strcat(curr_command->arguments, commands[i]);
+                if (commands[i + 1][0] != EOF)  //if we aren't at the last line
+                    strcat(curr_command->arguments, " "); //add " " between args or they won't process correctly
                 //printf("Arg: '%s'\n", curr_command->arguments);  //for DEBUGGING
                 break;
             case '>':  //if it's an output file
@@ -205,6 +214,11 @@ void built_in_cmds(char * command, char * arguments)
     if (!strncmp("cd", command, 2)){
         cd_cmd(command, arguments); //checks for cd command, if found changes directory to home w/no arguments, or to a specified directory argument
     }
+
+    if (!strncmp("status", command, 5)){
+        status_cmd(command); //checks for exit command, exits function if found
+    }
+
 }
 
 char * expand$$(char * command)
@@ -246,9 +260,10 @@ void exit_cmd(char * command)
 
 void cd_cmd(char * command, char * arguments)
 {
-    int i, count;
-    i = count = 0;
-    char cwd[500];
+    //int i, count;
+    //i = count = 0;
+    char cwd[PATH_MAX];
+    //char *cwd = calloc(strlen(command) + strlen(arguments) + 1, sizeof(char));
 
     if (arguments){
         printf("File path specified, changing directory...\n");
@@ -265,14 +280,41 @@ void cd_cmd(char * command, char * arguments)
     }
 }
 
-void system_cmds(char * command)
+void status_cmd(char * command)
 {
-    
+    if (strlen(command) >= 5 && !strncmp("status", command, 5)){
+        printf("exit status %s\n", getenv("STATUS"));
+    }
+}
 
-    char *newargv[] = { "/bin/ls", "-al", NULL };
+void system_cmds(char * command, char * arguments)
+{
+    //printf("args: '%s'\n", arguments);  //DEBUG
+    int i = 0;
+    char *token;
+    char *saveptr;
+
+    //Create the system call command exec() first argument
+    char *sys_call = strtok(command, "\n");
+
+    //Allocate space for an args array of strings
+    char **args_array = calloc(NUMBER_OF_STRINGS, sizeof(*args_array));
+    for (i = 0; i < NUMBER_OF_STRINGS; ++i)
+        args_array[i] = malloc(ARG_SIZE);
+    args_array[0] = sys_call;   //first must be file path for execv()
+    i = 1;
+    if (arguments){  //make sure there actually are arguments before trying to add to array
+        token = strtok_r(arguments, " ", &saveptr);
+        while (token && strcmp(token, "\n")){
+            //printf("curr token: '%s'\n", token);
+            strcpy(args_array[i++], strtok(token, "\n"));
+            token = strtok_r(NULL, " ", &saveptr);
+        }
+    }
+    args_array[i] = NULL;  //execvp requires array of strings to be null terminated
+    //printf("array[0]: '%s' array[1] '%s'\n", args_array[0], args_array[1]);
 
     int wait_id = 0;
-
 
     //Execute the system call from a child process
     pid_t spawnpid = -5;  //part of code below taken from class explorations
@@ -284,18 +326,26 @@ void system_cmds(char * command)
             break;
         case 0:  //child process
             printf("Child process now...\n");  //for DEBUGGING
-            if (!strncmp("ls", command, 4))
-                execv(newargv[0], newargv);
-            SIGTERM;
+            //execv(args_array[0], args_array);
+            execvp(args_array[0], args_array);
+            perror("execv");
+            exit(EXIT_FAILURE);
+            //SIGTERM;
             break;
         default:  //parent process
             wait(&wait_id);
-            printf("Child process is terminated. Wait id: %d\n", wait_id); //for DEBUGGING
+            char status[20];
+            sprintf(status, "%d", wait_id);
+            setenv("STATUS", status, 1);
             break;
     }
-
-
 }
+
+
+
+
+
+
 
 
 
