@@ -19,10 +19,12 @@
 
 struct CommandLine {
     char * cmd;    
+    char * cmd2;
     char * arguments;
     char * input_file;
     char * output_file;
     int background_flag;
+    int pid;
 };
 
 char * get_command(char command_line[]);
@@ -30,7 +32,7 @@ char ** tokenize_command(char command_line[]);
 struct CommandLine *parse_command(char ** commands);
 void print_command(struct CommandLine *curr_command);
 void built_in_cmds(struct CommandLine *curr_command);
-char * expand$$(struct CommandLine *curr_command);
+char * expand$$(char * command);
 void exit_cmd(struct CommandLine *curr_command);
 void cd_cmd(struct CommandLine *curr_command);
 void status_cmd(struct CommandLine *curr_command);
@@ -118,7 +120,6 @@ char ** tokenize_command(char command_line[])
     //For debugging
     //for (i=0; token_arr[i][0] != EOF; ++i)
         //printf("'%s'\n", token_arr[i]);
-
     return token_arr;  
 }
 
@@ -130,6 +131,7 @@ struct CommandLine *parse_command(char ** commands)
 
     //Set all struct members to NULL so we can know what commands were received later
     curr_command->cmd = NULL;
+    curr_command->cmd2 = NULL;
     curr_command->arguments = NULL;
     curr_command->input_file = NULL;
     curr_command->output_file = NULL;
@@ -143,10 +145,10 @@ struct CommandLine *parse_command(char ** commands)
     
     //Allocate space for cmd member and copy user command into it
     curr_command->cmd = calloc(strlen(commands[i]) + 1, sizeof(char));
-    strcpy(curr_command->cmd, commands[0]);
+    strcpy(curr_command->cmd, expand$$(commands[i++]));  //expand macro before adding to struct
     //printf("Cmd: '%s'\n", curr_command->cmd);  //for DEBUGGING
 
-    
+  
     //Check for arguments, input and output, and background/foreground flag
     for (i = 1; commands[i] && commands[i][0] != EOF; ++i){
         //printf("Checking: '%s'\n", commands[i]);  //for DEBUGGING
@@ -177,7 +179,14 @@ struct CommandLine *parse_command(char ** commands)
                 }
                 break;
             default :
-                printf("Unrecognized input.\n");
+                //printf("Unrecognized input.\n");
+                //printf("Adding directory...\n");  //DEBUG
+                if (curr_command->cmd2 == NULL)
+                    //Check for a directory after the command
+                    if (commands[i] && strncmp(commands[i], "-", 1)){
+                        curr_command->cmd2 = calloc(strlen(commands[i]) + 1, sizeof(char));
+                        strcpy(curr_command->cmd2, expand$$(commands[i])); //expand macro before adding to struct
+                    }
                 break;
         }      
     }
@@ -202,10 +211,9 @@ void print_command(struct CommandLine *curr_command)
         printf("Foreground process\n");    
 }
 
+
 void built_in_cmds(struct CommandLine *curr_command)
 {    
-    expand$$(curr_command);  //expand $$ macro in command to getpid()
-    //printf("Expanded command: %s\n", command); //for DEBUGGING
 
     if (!strncmp("exit", curr_command->cmd, 4)){
         exit_cmd(curr_command); //checks for exit command, exits function if found
@@ -221,53 +229,64 @@ void built_in_cmds(struct CommandLine *curr_command)
 
 }
 
-char * expand$$(struct CommandLine *curr_command)
-{
-    int count, i, total$$, itoa_len, rem$;
-    char str_itoa[100];
-    count = i = total$$ = itoa_len = rem$ = 0;
-    //char * temp;
 
-    for (i = 0; i < (strlen(curr_command->cmd)); ++i){
-        if (curr_command->cmd[i] == '$') 
+char * expand$$(char * command)
+{
+    int count, i, total$$;
+    char str_itoa[100] = "";
+    char full_pid[200] = "";
+    char leftover[100] = "$";  //for adding back if odd number of $'s
+    count = i = total$$ = 0;
+
+    for (i = 0; i < (strlen(command)); ++i){
+        if (command[i] == '$') 
             ++count;
     }
 
     if (count <= 1) // no $$ macro present, exit function early
-        return curr_command->cmd;
+        return command;
 
-    strtok(curr_command->cmd, "$");  //remove $'s from command
-    
-    if ((rem$ = count % 2) == 1)
-        strcat(curr_command->cmd, "$");  //get if any $'s leftover
+    strtok(command, "$$");  //remove $$'s from command (don't remove single $'s)
 
     total$$ = count / 2;
     for (i=0; i<total$$; ++i){
-        itoa_len = sprintf(str_itoa, "%d", getpid());    
-        strcat(curr_command->cmd, str_itoa);
+        sprintf(str_itoa, "%d", getpid()); 
+        strcat(full_pid, str_itoa);
     }
+    if (count % 2 == 1) {
+        strcat(leftover, full_pid);  //if leftover $'s, add back to the line
+        strcpy(full_pid, leftover);
+    }
+    if (strlen(command) == count)  //if the command is only $'s, with nothing else  
+        strcpy(command, full_pid);
+    else
+        strcat(command, full_pid);
 
-    return curr_command->cmd;
+
+
+
+    return command;
 }
+
 
 void exit_cmd(struct CommandLine *curr_command)
 {
     if (strlen(curr_command->cmd) >= 4 && !strncmp("exit", curr_command->cmd, 4)){
-        printf("Exiting shell..."); //for DEBUGGING
+        printf("Exiting shell...\n"); //for DEBUGGING
         exit(0);
     }
 }
 
+
 void cd_cmd(struct CommandLine *curr_command)
 {
-    //int i, count;
-    //i = count = 0;
     char cwd[PATH_MAX];
     //char *cwd = calloc(strlen(command) + strlen(arguments) + 1, sizeof(char));
 
-    if (curr_command->arguments){
+    //If filepath specified, cd to that path. Otherwise, cd to HOME.
+    if (curr_command->cmd2){
         printf("File path specified, changing directory...\n");
-        char *filepath = curr_command->arguments + 1;  //remove '-' prefix
+        char *filepath = curr_command->cmd2;  
         chdir(filepath);  //cwd to new filepath
         printf("File path given: %s\n", filepath);  //for DEBUGGING
         getcwd(cwd, sizeof(cwd));
@@ -280,6 +299,7 @@ void cd_cmd(struct CommandLine *curr_command)
     }
 }
 
+
 void status_cmd(struct CommandLine *curr_command)
 {
     if (strlen(curr_command->cmd) >= 5 && !strncmp("status", curr_command->cmd, 5)){
@@ -287,9 +307,9 @@ void status_cmd(struct CommandLine *curr_command)
     }
 }
 
+
 void system_cmds(struct CommandLine *curr_command)
 {
-    //printf("args: '%s'\n", arguments);  //DEBUG
     int i = 0;
     char *token;
     char *saveptr;
@@ -303,21 +323,27 @@ void system_cmds(struct CommandLine *curr_command)
         args_array[i] = malloc(ARG_SIZE);
     args_array[0] = sys_call;   //first must be file path for execv()
     i = 1;
-    if (curr_command->arguments){  //make sure there actually are arguments before trying to add to array
+
+    if (curr_command->cmd2){ //check for directory input first
+        strcpy(args_array[i++], strtok(curr_command->cmd2, "\n"));
+    } else if (curr_command->arguments){  //make sure there actually are arguments before trying to add to array
         token = strtok_r(curr_command->arguments, " ", &saveptr);
         while (token && strcmp(token, "\n")){
             //printf("curr token: '%s'\n", token);
             strcpy(args_array[i++], strtok(token, "\n"));
             token = strtok_r(NULL, " ", &saveptr);
         }
-    }
+    } 
+
     args_array[i] = NULL;  //execvp requires array of strings to be null terminated
     //printf("array[0]: '%s' array[1] '%s'\n", args_array[0], args_array[1]);
 
     int wait_id = 0;
 
-    //Execute the system call from a child process
-    pid_t spawnpid = -5;  //part of code below taken from class explorations
+    //Execute the system call from a child process (Reference: much of code below taken from class explorations)
+    pid_t spawnpid = -5;  
+    int childExitStatus;
+
     spawnpid = fork();
     switch (spawnpid){
         case -1:  //error
@@ -325,29 +351,24 @@ void system_cmds(struct CommandLine *curr_command)
             exit(1);
             break;
         case 0:  //child process
-            printf("Child process now...\n");  //for DEBUGGING
-            //execv(args_array[0], args_array);
+            //printf("Child process now...\n");  //for DEBUGGING
             execvp(args_array[0], args_array);
-            perror("execv");
+            perror(args_array[0]);
             exit(EXIT_FAILURE);
             //SIGTERM;
             break;
         default:  //parent process
-            wait(&wait_id);
-            char status[20];
-            sprintf(status, "%d", wait_id);
-            setenv("STATUS", status, 1);
+            //wait(&wait_id);
+            spawnpid = waitpid(spawnpid, &childExitStatus, 0);
+            //printf("Spawnpid: %d\n", spawnpid);
+            if (childExitStatus > 0)
+                setenv("STATUS", "1", 1);
+            else
+                setenv("STATUS", "0", 1);
             break;
     }
+    free(args_array);
 }
-
-
-
-
-
-
-
-
 
 
 
