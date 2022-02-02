@@ -16,4 +16,6 @@ void handle_SIGTSTP(int sig);
 void setup_SIGTSTP();
 void handle_SIGCHLD(int sig);
 void setup_SIGCHLD();
-void check_background_processes(int * PIDs_array);
+void check_background_processes(int PIDs_array[]);
+void handle_SIGINT(int signo);
+void setup_SIGINT();

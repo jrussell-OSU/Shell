@@ -33,6 +33,9 @@ struct CommandLine {
     int pid;
 };
 
+static volatile sig_atomic_t sig_int;
+static volatile sig_atomic_t sig_chld;
+
 int main()
 {
     char command_line[MAX_COMMAND_SIZE];
@@ -40,10 +43,15 @@ int main()
     while(1){
         
         signal(SIGINT, SIG_IGN);
-        setup_SIGCHLD();
+        //setup_SIGCHLD();
         setup_SIGTSTP();
         signal(SIGTSTP, handle_SIGTSTP);
-        signal(SIGCHLD, handle_SIGCHLD);
+        //signal(SIGCHLD, handle_SIGCHLD);
+
+        if (sig_int){
+            printf("terminated by signal %d\n", sig_int);
+            sig_int = 0;
+        }
 
         //signal(SIGTSTP, SIG_IGN);
         //setup_SIGINT();
@@ -430,13 +438,14 @@ void file_redirect(struct CommandLine *curr_command)
 
 }
 
-//Handles response to SIGINT signal (ctrl-c command)
+//Handles response to SIGTSTP signal (ctrl-c command)
 void handle_SIGTSTP(int signo)
 {
     //code partly from class explorations
-	char* message = "Caught SIGTSTP\n";
+	char* message = "Entering foreground-only mode (& is now ignored)\n";
 	// We are using write rather than printf
-	write(STDOUT_FILENO, message, 16);
+	write(STDOUT_FILENO, message, 49);
+
 }
 
 void setup_SIGTSTP()
@@ -459,21 +468,39 @@ void setup_SIGTSTP()
 
 }
 
-void handle_SIGCHLD(int signo)
+void handle_SIGINT(int signo)
 {
     //code partly from class explorations
-	//char* message = "Caught SIGCHLD: ";
+	char* message = "sigint on child foreground\n";
 	// We are using write rather than printf
-	//write(STDOUT_FILENO, message, 17);
-    //pid_t wait_result;
-    //int childExitStatus;
-    
-    //while ((wait_result = waitpid(-1, childExitStatus, WNOHANG)) != -1){
-        //write(STDOUT_FILENO, signo, 1);
-    //}
-    //wait_result = wait(-1, &childExitStatus, 0)
+	write(STDOUT_FILENO, message, 29);
+    raise(SIGTERM);
+}
 
+void setup_SIGINT()
+{
+    //much of code below taken from class explorations
 
+	// Initialize struct to be empty
+	struct sigaction SIGINT_action = {{0}};
+
+	// Fill out the SIGINT_action struct
+	// Register signal handler
+	SIGINT_action.sa_handler = handle_SIGINT;
+	// Block all catchable signals while handler is running
+	sigfillset(&SIGINT_action.sa_mask);
+	// No flags set
+	SIGINT_action.sa_flags = 0;
+
+	// Install our signal handler
+	sigaction(SIGINT, &SIGINT_action, NULL);
+
+}
+
+/*
+void handle_SIGCHLD(int signo)
+{
+    sig_int = signo;
 }
 
 void setup_SIGCHLD()
@@ -494,13 +521,14 @@ void setup_SIGCHLD()
 	// Install our signal handler
 	sigaction(SIGCHLD, &SIGCHLD_action, NULL);
 }
+*/
 
-void check_background_processes(PIDs_array)
+void check_background_processes(int PIDs_array[])
 {
     //check array of background processes                 
     for(int j = 0; PIDs_array[j]; j++){
         pid_t childPID = PIDs_array[j];
-        printf("Checking background process: %d\n", childPID);
+        //printf("Checking background process: %d\n", childPID);
         fflush(stdout);
         int childExitStatus;
         
@@ -524,6 +552,10 @@ void system_cmds(struct CommandLine *curr_command)
     pid_t childPID = -5;  
     int childExitStatus;
     pid_t wait_result;
+    if (!curr_command->background_flag){
+        setup_SIGINT();
+        signal(SIGINT, handle_SIGINT);
+    }
     childPID = fork();
     switch (childPID){
         case -1:  //error
@@ -534,9 +566,9 @@ void system_cmds(struct CommandLine *curr_command)
         case 0:  //child process
             if (!curr_command->background_flag){
                 
-                signal(SIGINT, SIG_DFL);
+                //signal(SIGINT, SIG_DFL);
                 signal(SIGTSTP, SIG_IGN);
-                
+                signal(SIGINT, handle_SIGINT);
                 file_redirect(curr_command); //file redirection (if any)
                 execvp(args_array[0], args_array);
                 perror(args_array[0]);
@@ -546,8 +578,8 @@ void system_cmds(struct CommandLine *curr_command)
                 signal(SIGINT, SIG_IGN);
                 signal(SIGTSTP, SIG_IGN);
 
-                //int devNull = open("/dev/null", O_WRONLY);
-                //dup2(devNull, 1); //don't print output unless file redirection (below) is specified (i.e. don't print background processes to the terminal, only to specified files)
+                int devNull = open("/dev/null", O_WRONLY);
+                dup2(devNull, 1); //don't print output unless file redirection (below) is specified (i.e. don't print background processes to the terminal, only to specified files)
                 
                 file_redirect(curr_command); //file redirection (if any)
                 execvp(args_array[0], args_array);
@@ -558,14 +590,18 @@ void system_cmds(struct CommandLine *curr_command)
             
             break;
         default:  //parent process
-            
+            signal(SIGINT, SIG_IGN);
             if (!curr_command->background_flag){ //if foreground process
                 wait_result = waitpid(childPID, &childExitStatus, 0);
 
             } else {  //if background process
                 printf("Background process %d started.\n", childPID);
                 fflush(stdout);
-                PIDs_array[i++] = childPID;  //store background PID
+                if ((wait_result = waitpid(childPID, &childExitStatus, WNOHANG)) > 0){
+                    printf("Exit status of background child %d is %d\n", childPID, childExitStatus);
+                    fflush(stdout);
+                } else 
+                    PIDs_array[i++] = childPID;  //store background PID
             }
 
              
