@@ -394,7 +394,9 @@ void file_redirect(struct CommandLine *curr_command)
         int inFD = open(fileInPath, O_RDONLY);
         fflush(stdin);
         if (inFD == -1) { 
-            perror("input open()"); 
+            //perror("Cannot open %s for input", fileInPath); 
+            printf("Cannot open %s for input\n", fileInPath);
+            fflush(stdout);
             exit(1);
         }
         fflush(stdout);
@@ -405,6 +407,7 @@ void file_redirect(struct CommandLine *curr_command)
 
         if (result == -1) {
             perror("input dup2()");
+            fflush(stdout);
             exit(2);
         }
         fflush(stdout);
@@ -418,7 +421,8 @@ void file_redirect(struct CommandLine *curr_command)
         //printf("Opening file %s.\n", newFilePath);
         int outFD = open(fileOutPath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
         if (outFD == -1) { 
-            perror("output open()"); 
+            //perror("output open()"); 
+            printf("Cannot open %s for output\n", fileOutPath);
             fflush(stdout);
             exit(1);
         }
@@ -471,9 +475,10 @@ void setup_SIGTSTP()
 void handle_SIGINT(int signo)
 {
     //code partly from class explorations
-	char* message = "sigint on child foreground\n";
+	char* message = "terminated by signal 2\n";
 	// We are using write rather than printf
-	write(STDOUT_FILENO, message, 29);
+	write(STDOUT_FILENO, message, 24);
+    //raise(SIGTERM);
     raise(SIGTERM);
 }
 
@@ -494,13 +499,28 @@ void setup_SIGINT()
 
 	// Install our signal handler
 	sigaction(SIGINT, &SIGINT_action, NULL);
-
 }
 
-/*
 void handle_SIGCHLD(int signo)
 {
-    sig_int = signo;
+    int childExitStatus;
+    pid_t childPID = NULL;
+    pid_t wait_result;
+    char *message = "caught sigchld\n";
+    write(STDOUT_FILENO, message, 16);
+
+
+    
+    while (1){
+        wait_result = waitpid(-1, &childExitStatus, 0);
+        if (wait_result == 0)
+            break;
+        else if (wait_result == -1)
+            break;
+        else {
+            write(STDOUT_FILENO, message, 16);
+        }
+    }
 }
 
 void setup_SIGCHLD()
@@ -521,7 +541,6 @@ void setup_SIGCHLD()
 	// Install our signal handler
 	sigaction(SIGCHLD, &SIGCHLD_action, NULL);
 }
-*/
 
 void check_background_processes(int PIDs_array[])
 {
@@ -552,9 +571,14 @@ void system_cmds(struct CommandLine *curr_command)
     pid_t childPID = -5;  
     int childExitStatus;
     pid_t wait_result;
+
+    //set up foreground and background children signals
     if (!curr_command->background_flag){
-        setup_SIGINT();
-        signal(SIGINT, handle_SIGINT);
+        signal(SIGINT, SIG_DFL);
+        signal(SIGTSTP, SIG_IGN);        
+    } else {
+        signal(SIGINT, SIG_IGN);
+        signal(SIGTSTP, SIG_IGN); 
     }
     childPID = fork();
     switch (childPID){
@@ -567,16 +591,16 @@ void system_cmds(struct CommandLine *curr_command)
             if (!curr_command->background_flag){
                 
                 //signal(SIGINT, SIG_DFL);
-                signal(SIGTSTP, SIG_IGN);
-                signal(SIGINT, handle_SIGINT);
+                //signal(SIGTSTP, SIG_IGN);
+                //signal(SIGINT, SIG_DFL);
                 file_redirect(curr_command); //file redirection (if any)
                 execvp(args_array[0], args_array);
                 perror(args_array[0]);
                 exit(EXIT_FAILURE);
             } else {
                 //signal(SIGINT, SIGINT_handler);
-                signal(SIGINT, SIG_IGN);
-                signal(SIGTSTP, SIG_IGN);
+                //signal(SIGINT, SIG_IGN);
+                //signal(SIGTSTP, SIG_IGN);
 
                 int devNull = open("/dev/null", O_WRONLY);
                 dup2(devNull, 1); //don't print output unless file redirection (below) is specified (i.e. don't print background processes to the terminal, only to specified files)
@@ -584,15 +608,31 @@ void system_cmds(struct CommandLine *curr_command)
                 file_redirect(curr_command); //file redirection (if any)
                 execvp(args_array[0], args_array);
                 perror(args_array[0]);
-                exit(EXIT_FAILURE);
-                
-            }
-            
+                exit(EXIT_FAILURE);                
+            }            
             break;
         default:  //parent process
+
+            setup_SIGTSTP();
+            signal(SIGTSTP, handle_SIGTSTP);
             signal(SIGINT, SIG_IGN);
             if (!curr_command->background_flag){ //if foreground process
                 wait_result = waitpid(childPID, &childExitStatus, 0);
+                /*
+                if (WIFEXITED(childExitStatus)){
+                    int exit_status = WEXITSTATUS(childExitStatus);
+                    printf("Child exited with status %d\n", exit_status);
+                    exit_status = WIF
+                }
+                */
+                if (WIFSIGNALED(childExitStatus)){
+                    int exit_status = WTERMSIG(childExitStatus);
+                    printf("terminated by signal %d\n", exit_status);
+                    if (childExitStatus > 0)
+                        setenv("STATUS", "1", 1);
+                    else
+                        setenv("STATUS", "0", 1);
+                }
 
             } else {  //if background process
                 printf("Background process %d started.\n", childPID);
@@ -602,15 +642,11 @@ void system_cmds(struct CommandLine *curr_command)
                     fflush(stdout);
                 } else 
                     PIDs_array[i++] = childPID;  //store background PID
+                if (childExitStatus > 0)
+                    setenv("STATUS", "1", 1);
+                else
+                    setenv("STATUS", "0", 1);
             }
-
-             
-            
-            if (childExitStatus > 0)
-                setenv("STATUS", "1", 1);
-            else
-                setenv("STATUS", "0", 1);
-            break;
     }
     check_background_processes(PIDs_array); //look for terminated background children
     
