@@ -21,7 +21,6 @@
 #define MAX_COMMAND_SIZE 2049  //max length of command
 #define PATH_MAX 4096  //file_path size max
 
-//ps -o ppid,pid,pgid,sid,euser,stat,%cpu,rss,args | head -n 1; ps -eH -o ppid,pid,pgid,sid,euser,stat,%cpu,rss,args | grep russelj2  (for debugging)
 
 struct CommandLine {
     char * cmd;    
@@ -29,33 +28,22 @@ struct CommandLine {
     char * arguments;
     char * input_file;
     char * output_file;
+    int expansion_macro; //for $$
     int background_flag;
     int pid;
 };
 
-static volatile sig_atomic_t sig_int;
-static volatile sig_atomic_t sig_chld;
+static volatile sig_atomic_t foreground_mode_flag;
 
 int main()
 {
     char command_line[MAX_COMMAND_SIZE];
-
+    foreground_mode_flag = 0;  //to track foreground_mode (ctrl-z)
+    signal(SIGINT, SIG_IGN);
+    setup_SIGTSTP();
+    signal(SIGTSTP, handle_SIGTSTP);
+    
     while(1){
-        
-        signal(SIGINT, SIG_IGN);
-        //setup_SIGCHLD();
-        setup_SIGTSTP();
-        signal(SIGTSTP, handle_SIGTSTP);
-        //signal(SIGCHLD, handle_SIGCHLD);
-
-        if (sig_int){
-            printf("terminated by signal %d\n", sig_int);
-            sig_int = 0;
-        }
-
-        //signal(SIGTSTP, SIG_IGN);
-        //setup_SIGINT();
-        //signal(SIGINT, SIGINT_handler);
 
         get_command(command_line); //Get command line input from user        
 
@@ -71,7 +59,8 @@ int main()
         if (!curr_command->cmd)  //if command is NULL, get new one (fail-safe catch)
             continue; 
 
-        //setup_SIGS(curr_command);
+        check_foreground_mode(curr_command);
+
 
         //Run built in or sys commands based on command input
         if (!strncmp("cd", curr_command->cmd, 2) || !strncmp("exit", curr_command->cmd, 4) || !strncmp("status", curr_command->cmd, 5))
@@ -79,9 +68,6 @@ int main()
         else
             system_cmds(curr_command);  //check and execute system call
     
-
-        
-
         free(curr_command->cmd);
         free(curr_command->cmd2);
         free(curr_command->arguments);
@@ -110,6 +96,8 @@ char * get_command(char command_line[])
     strcpy(command_line, curr_line);
     
     free(curr_line);
+
+
     return command_line;
 }
 
@@ -160,6 +148,7 @@ struct CommandLine *parse_command(char ** commands)
     curr_command->arguments = NULL;
     curr_command->input_file = NULL;
     curr_command->output_file = NULL;
+    curr_command->expansion_macro = 0;
     curr_command->background_flag = 0;  //1 == background process, 0 == foreground
 
     //Check for # comments and blank lines
@@ -173,7 +162,6 @@ struct CommandLine *parse_command(char ** commands)
     //Allocate space for cmd member and copy user command into it
     curr_command->cmd = calloc(strlen(commands[i]) + 1, sizeof(char));
     strcpy(curr_command->cmd, expand$$(commands[i++]));  //expand macro before adding to struct
-
   
     //Check for arguments, input and output, and background/foreground flag
     for (i = 1; commands[i] && commands[i][0] != EOF; ++i){
@@ -191,18 +179,38 @@ struct CommandLine *parse_command(char ** commands)
                 strcat(curr_command->input_file, commands[i]);
                 break;
             case '&': //if it's a background flag
-                if (commands[i + 1][0] == EOF)  //IFF the '&' is the last command in the line, set flag
+                if (commands[i + 1][0] == EOF)  //IFF the '&' is the last command in the line
                     curr_command->background_flag = 1;
                 else //if not end and, treat is a secondary command (e.g. as part of an echo command)
                     set_cmd2(curr_command, commands, i);
-                break;      
+                break;
+            case '$': //if possible expansion macro
+                if (commands[i][1] == '$'){
+                    curr_command->expansion_macro = getpid();
+                    //char str_int[20];
+                    //int my_pid = getpid();
+                    //sprintf(str_int, "%d", my_pid);
+                    //commands[i] = str_int;
+                }
+                break;
             default :
-                set_cmd2(curr_command, commands, i);
+                if (!curr_command->arguments)
+                    set_cmd2(curr_command, commands, i);
+                else
+                    set_cmd3(curr_command, commands, i)
                 break;
         }      
     }
     //print_command(curr_command);  //for DEBUGGING
+    
     return curr_command;
+}
+
+//If foreground only mode active, don't let any commands be background
+void check_foreground_mode(struct CommandLine *curr_command)
+{
+    if (foreground_mode_flag == 1)
+        curr_command->background_flag = 0;
 }
 
 //Go through command_line arguments struct and arrange information into array of strings for processing multiple arguments later on
@@ -227,6 +235,19 @@ void set_cmd2(struct CommandLine *curr_command, char ** commands, int i)
         strcat(curr_command->cmd2, expand$$(commands[i])); //expand $$macros (if any) then add to struct
     }
 }
+
+void set_cmd3(struct CommandLine *curr_command, char ** commands, int i)
+{
+    if (curr_command->cmd2 == NULL)
+        curr_command->cmd2 = calloc(MAX_ARGS_SIZE, sizeof(char));
+    if (curr_command->cmd && commands[i]){
+    //Check for a directory after the command
+        if (i > 1)  //add spaces back in
+            strcat(curr_command->cmd2, " ");
+        strcat(curr_command->cmd2, expand$$(commands[i])); //expand $$macros (if any) then add to struct
+    }
+}
+
 
 //Prints command_struct where members are not NULL. Used for DEBUGGING
 void print_command(struct CommandLine *curr_command)
@@ -267,6 +288,7 @@ void built_in_cmds(struct CommandLine *curr_command)
     fflush(stdout);
 
 }
+
 
 //If "$$" found in command, this will expand it into the process PID
 char * expand$$(char * command)
@@ -365,15 +387,23 @@ char ** sys_args(struct CommandLine *curr_command)
     args_array[0] = sys_call;   //first must be file path for execv()
     i = 1;
 
-    if (curr_command->cmd2){ //check for directory input first
-        strcpy(args_array[i++], strtok(curr_command->cmd2, "\n"));
-    } else if (curr_command->arguments){  //make sure there actually are arguments before trying to add to array
+    if (curr_command->arguments){  //make sure there actually are arguments before trying to add to array
         token = strtok_r(curr_command->arguments, " ", &saveptr);
         while (token && strcmp(token, "\n")){
             //printf("curr token: '%s'\n", token);
             strcpy(args_array[i++], strtok(token, "\n"));
             token = strtok_r(NULL, " ", &saveptr);
         }
+    }
+
+    if (curr_command->cmd2) //check for directory input first
+        strcpy(args_array[i++], strtok(curr_command->cmd2, "\n"));
+
+    if (curr_command->expansion_macro){
+        char str_int[20];
+        int my_pid = getpid();
+        sprintf(str_int, "%d", my_pid);
+        strcpy(args_array[i++], str_int);
     } 
 
     //if (curr_command->background_flag)
@@ -442,14 +472,21 @@ void file_redirect(struct CommandLine *curr_command)
 
 }
 
-//Handles response to SIGTSTP signal (ctrl-c command)
+//Handles response to SIGTSTP signal (ctrl-z command). Enters and exits foreground_mode
 void handle_SIGTSTP(int signo)
 {
-    //code partly from class explorations
-	char* message = "Entering foreground-only mode (& is now ignored)\n";
-	// We are using write rather than printf
-	write(STDOUT_FILENO, message, 49);
+    char* foreground_on = "Entering foreground-only mode (& is now ignored)\n";
+    char* foreground_off = "Exiting foreground-only mode\n";
 
+    if (foreground_mode_flag == 0){
+        foreground_mode_flag = 1;
+        //code partly from class explorations
+        // We are using write rather than printf
+        write(STDOUT_FILENO, foreground_on, 49);
+    } else {
+        foreground_mode_flag = 0;
+        write(STDOUT_FILENO, foreground_off, 30);
+    }  
 }
 
 void setup_SIGTSTP()
@@ -472,6 +509,7 @@ void setup_SIGTSTP()
 
 }
 
+/*
 void handle_SIGINT(int signo)
 {
     //code partly from class explorations
@@ -500,7 +538,9 @@ void setup_SIGINT()
 	// Install our signal handler
 	sigaction(SIGINT, &SIGINT_action, NULL);
 }
+*/
 
+/*
 void handle_SIGCHLD(int signo)
 {
     int childExitStatus;
@@ -541,7 +581,9 @@ void setup_SIGCHLD()
 	// Install our signal handler
 	sigaction(SIGCHLD, &SIGCHLD_action, NULL);
 }
+*/
 
+//Checks array of all background process PIDs to see if any have termed
 void check_background_processes(int PIDs_array[])
 {
     //check array of background processes                 
@@ -552,7 +594,11 @@ void check_background_processes(int PIDs_array[])
         int childExitStatus;
         
         pid_t wait_result = waitpid(childPID, &childExitStatus, WNOHANG);
-        if (wait_result > 0){
+        if (WIFSIGNALED(childExitStatus)){
+                int exit_status = WTERMSIG(childExitStatus);
+                printf("background child %d was terminated by signal %d\n", childPID, exit_status);
+                fflush(stdout);    
+        } else if (wait_result > 0){
             printf("Exit status of background child %d is %d\n", childPID, childExitStatus);
             fflush(stdout);
             }
@@ -589,18 +635,12 @@ void system_cmds(struct CommandLine *curr_command)
             break;
         case 0:  //child process
             if (!curr_command->background_flag){
-                
-                //signal(SIGINT, SIG_DFL);
-                //signal(SIGTSTP, SIG_IGN);
-                //signal(SIGINT, SIG_DFL);
+
                 file_redirect(curr_command); //file redirection (if any)
                 execvp(args_array[0], args_array);
                 perror(args_array[0]);
                 exit(EXIT_FAILURE);
             } else {
-                //signal(SIGINT, SIGINT_handler);
-                //signal(SIGINT, SIG_IGN);
-                //signal(SIGTSTP, SIG_IGN);
 
                 int devNull = open("/dev/null", O_WRONLY);
                 dup2(devNull, 1); //don't print output unless file redirection (below) is specified (i.e. don't print background processes to the terminal, only to specified files)
@@ -628,6 +668,7 @@ void system_cmds(struct CommandLine *curr_command)
                 if (WIFSIGNALED(childExitStatus)){
                     int exit_status = WTERMSIG(childExitStatus);
                     printf("terminated by signal %d\n", exit_status);
+                    fflush(stdout);
                     if (childExitStatus > 0)
                         setenv("STATUS", "1", 1);
                     else
@@ -637,16 +678,21 @@ void system_cmds(struct CommandLine *curr_command)
             } else {  //if background process
                 printf("Background process %d started.\n", childPID);
                 fflush(stdout);
-                if ((wait_result = waitpid(childPID, &childExitStatus, WNOHANG)) > 0){
-                    printf("Exit status of background child %d is %d\n", childPID, childExitStatus);
-                    fflush(stdout);
+                wait_result = waitpid(childPID, &childExitStatus, WNOHANG);
+                if (WIFSIGNALED(childExitStatus)){
+                        int exit_status = WTERMSIG(childExitStatus);
+                        printf("background child %d was terminated by signal %d\n", childPID, exit_status);
+                        fflush(stdout);
                 } else 
-                    PIDs_array[i++] = childPID;  //store background PID
+                    PIDs_array[i++] = childPID;
+                               
+             
+
                 if (childExitStatus > 0)
                     setenv("STATUS", "1", 1);
                 else
-                    setenv("STATUS", "0", 1);
-            }
+                    setenv("STATUS", "0", 1);  
+            }                        
     }
     check_background_processes(PIDs_array); //look for terminated background children
     

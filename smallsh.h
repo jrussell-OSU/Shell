@@ -19,3 +19,5 @@ void setup_SIGCHLD();
 void check_background_processes(int PIDs_array[]);
 void handle_SIGINT(int signo);
 void setup_SIGINT();
+void check_foreground_mode(struct CommandLine *curr_command);
+void set_cmd3(struct CommandLine *curr_command, char ** commands, int i);
