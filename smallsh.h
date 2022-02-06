@@ -3,7 +3,7 @@ char ** tokenize_command(char command_line[]);
 struct CommandLine *parse_command(char ** commands);
 void print_command(struct CommandLine *curr_command);
 void built_in_cmds(struct CommandLine *curr_command);
-char * expand$$(char * command);
+char * expand_macro(char * command);
 void exit_cmd(struct CommandLine *curr_command);
 void cd_cmd(struct CommandLine *curr_command);
 void status_cmd(struct CommandLine *curr_command);
